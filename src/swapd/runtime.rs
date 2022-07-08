@@ -190,6 +190,7 @@ pub fn run(
         pending_checkpoint_chunks: map![],
         txs: none!(),
         public_offer,
+        epsilon: 0.05,
     };
     let broker = false;
     Service::run(config, runtime, broker)
@@ -214,6 +215,7 @@ pub struct Runtime {
     #[allow(dead_code)]
     storage: Box<dyn storage::Driver>,
     public_offer: PublicOffer<BtcXmr>,
+    epsilon: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -1105,7 +1107,9 @@ impl Runtime {
                             .state
                             .a_required_funding_amount()
                             .expect("set when monero funding address is displayed");
-                        if amount.clone() < required_funding_amount {
+                        if (amount.clone() as f64)
+                            < required_funding_amount as f64 * (1.0 + self.epsilon)
+                        {
                             // Alice still views underfunding as valid in the hope that Bob still passes her BuyProcSig
                             let msg = format!(
                                 "Too small amount funded. Required: {}, Funded: {}. Do not fund this swap anymore, will attempt to refund.",
@@ -1114,7 +1118,9 @@ impl Runtime {
                             );
                             error!("{}", msg);
                             self.report_progress_message_to(endpoints, self.enquirer.clone(), msg)?;
-                        } else if amount.clone() > required_funding_amount {
+                        } else if amount.clone() as f64
+                            > required_funding_amount as f64 * (1.0 - self.epsilon)
+                        {
                             // Alice set overfunded to ensure that she does not publish the buy transaction if Bob gives her the BuySig.
                             self.state.a_sup_overfunded();
                             let msg = format!(
@@ -1165,8 +1171,9 @@ impl Runtime {
                         && self.syncer_state.tasks.watched_addrs.contains_key(id)
                         && self.syncer_state.is_watched_addr(&TxLabel::AccLock) =>
                     {
-                        let amount = monero::Amount::from_pico(*amount);
-                        if amount < self.syncer_state.monero_amount {
+                        if (*amount as f64)
+                            < self.syncer_state.monero_amount.as_pico() as f64 * (1. - self.epsilon)
+                        {
                             warn!(
                                 "Not enough monero locked: expected {}, found {}",
                                 self.syncer_state.monero_amount, amount
