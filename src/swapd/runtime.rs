@@ -1385,7 +1385,6 @@ impl Runtime {
                                     )?;
                                 }
                                 // If the bitcoin amount does not match the expected funding amount, abort the swap
-                                let amount = bitcoin::Amount::from_sat(*amount);
                                 info!(
                                     "LMAO: {}, {:?}",
                                     self.state,
@@ -1393,8 +1392,12 @@ impl Runtime {
                                 );
                                 let required_funding_amount =
                                     self.state.b_required_funding_amount().unwrap();
-
-                                if amount != required_funding_amount {
+                                let error = 0.05; // FIXME
+                                if *amount as f64
+                                    > required_funding_amount.as_sat() as f64 * (1. + error)
+                                    || (*amount as f64)
+                                        < required_funding_amount.as_sat() as f64 * (1. - error)
+                                {
                                     let msg = format!("Incorrect amount funded. Required: {}, Funded: {}. Do not fund this swap anymore, will abort and atttempt to sweep the Bitcoin to the provided address.", amount, required_funding_amount);
                                     error!("{}", msg);
                                     self.report_progress_message_to(
