@@ -1169,7 +1169,9 @@ impl Runtime {
                         tx: _,
                     }) if self.state.swap_role() == SwapRole::Bob
                         && self.syncer_state.tasks.watched_addrs.contains_key(id)
-                        && self.syncer_state.is_watched_addr(&TxLabel::AccLock) =>
+                        && self.syncer_state.is_watched_addr(&TxLabel::AccLock)
+                        && self.syncer_state.tasks.watched_addrs.get(id).unwrap()
+                            == &TxLabel::AccLock =>
                     {
                         if (*amount as f64)
                             < self.syncer_state.monero_amount.as_pico() as f64 * (1. - self.epsilon)
