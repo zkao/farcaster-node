@@ -1067,12 +1067,14 @@ async fn run_refund_swap_alice_overfunds(
     // run until the alice has the monero funding address and fund it
     let (monero_address, monero_amount) =
         retry_until_monero_funding_address(swap_id, cli_alice_needs_funding_args.clone()).await;
-    send_monero(
-        Arc::clone(&monero_wallet),
-        monero_address,
-        monero::Amount::from_pico(monero_amount.as_pico() + 1),
+    let pico_amount_float = monero_amount.as_pico() as f64;
+    let epsilon = 0.05; // FIXME should be the same as in swapd/runtime
+    let monero_amount = monero::Amount::from_float_in(
+        pico_amount_float + pico_amount_float * epsilon + 1.,
+        monero::Denomination::Piconero,
     )
-    .await;
+    .unwrap();
+    send_monero(Arc::clone(&monero_wallet), monero_address, monero_amount).await;
 
     // run until the funding infos are cleared again
     println!("waiting for the monero funding info to clear");
