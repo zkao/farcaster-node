@@ -54,6 +54,8 @@ pub struct SyncerState {
     pub network: farcaster_core::blockchain::Network,
     pub bitcoin_syncer: ServiceId,
     pub monero_syncer: ServiceId,
+    pub bitcoin_syncer_online: bool,
+    pub monero_syncer_online: bool,
     pub monero_amount: monero::Amount,
     pub bitcoin_amount: bitcoin::Amount,
     pub xmr_addr_addendum: Option<XmrAddressAddendum>,

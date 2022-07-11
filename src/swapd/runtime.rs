@@ -165,6 +165,8 @@ pub fn run(
         network,
         bitcoin_syncer: ServiceId::Syncer(Coin::Bitcoin, network),
         monero_syncer: ServiceId::Syncer(Coin::Monero, network),
+        bitcoin_syncer_online: false,
+        monero_syncer_online: false,
         monero_amount,
         bitcoin_amount,
         awaiting_funding: false,
@@ -547,14 +549,6 @@ impl Runtime {
                                     Request::SyncerTask(task),
                                 )?;
                             }
-                            let btc_fee_task = self.syncer_state.estimate_fee_btc();
-                            endpoints.send_to(
-                                ServiceBus::Ctl,
-                                self.identity(),
-                                self.syncer_state.bitcoin_syncer(),
-                                Request::SyncerTask(btc_fee_task),
-                            )?;
-                            std::thread::sleep(Duration::from_secs_f32(2.0));
                         }
 
                         self.send_wallet(msg_bus, endpoints, request)?;
@@ -585,14 +579,6 @@ impl Runtime {
                                         "Pending requests already existed prior to Reveal::Proof!"
                                     )
                                 }
-                                let btc_fee_task = self.syncer_state.estimate_fee_btc();
-                                endpoints.send_to(
-                                    ServiceBus::Ctl,
-                                    self.identity(),
-                                    self.syncer_state.bitcoin_syncer(),
-                                    Request::SyncerTask(btc_fee_task),
-                                )?;
-                                std::thread::sleep(Duration::from_secs_f32(2.0));
                             }
                             SwapRole::Alice => {
                                 debug!("Alice: forwarding reveal");
@@ -862,6 +848,20 @@ impl Runtime {
     ) -> Result<(), Error> {
         match (&request, &source) {
 
+            (Request::Hello, ServiceId::Syncer(..)) if source == self.syncer_state.bitcoin_syncer
+                || source == self.syncer_state.monero_syncer => {
+                    match source {
+                        ServiceId::Syncer(Coin::Monero, _) => {self.syncer_state.monero_syncer_online = true},
+                        ServiceId::Syncer(Coin::Bitcoin, _) => {self.syncer_state.bitcoin_syncer_online = true}
+                        _ => unreachable!()
+                    }
+                    if self.pending_requests.contains_key(&source) {
+                        for PendingRequest { dest, bus_id, request } in self.pending_requests.remove(&source).unwrap() {
+                            endpoints.send_to(bus_id, self.identity(), dest, request)?
+                        }
+                    }
+
+            }
             (Request::Hello, _) => {
                 info!(
                     "{} | Service {} daemon is now {}",
@@ -992,6 +992,23 @@ impl Runtime {
                     swap_id,
                 };
                 self.send_peer(endpoints, Msg::TakerCommit(take_swap))?;
+                if !self
+                    .pending_requests
+                    .contains_key(&self.syncer_state.bitcoin_syncer)
+                    && !self.syncer_state.bitcoin_syncer_online
+                {
+                    let btc_fee_task = self.syncer_state.estimate_fee_btc();
+                    let pending_request = PendingRequest {
+                        dest: self.syncer_state.bitcoin_syncer(),
+                        bus_id: ServiceBus::Ctl,
+                        request: Request::SyncerTask(btc_fee_task),
+                    };
+                    self.pending_requests
+                        .insert(self.syncer_state.bitcoin_syncer(), vec![pending_request]);
+                } else {
+                    error!("pending req for syncer not empty")
+                }
+
                 self.state_update(endpoints, next_state)?;
             }
             Request::Protocol(Msg::Reveal(reveal))
@@ -1044,17 +1061,22 @@ impl Runtime {
                     Some(remote_commit),
                 );
 
-                std::thread::sleep(Duration::from_secs_f32(2.0));
-                let btc_fee_task = self.syncer_state.estimate_fee_btc();
-                endpoints.send_to(
-                    ServiceBus::Ctl,
-                    self.identity(),
-                    self.syncer_state.bitcoin_syncer(),
-                    Request::SyncerTask(btc_fee_task),
-                )?;
-
-                // syncer takes too long to give a fee
-                std::thread::sleep(Duration::from_secs_f32(2.0));
+                if !self
+                    .pending_requests
+                    .contains_key(&self.syncer_state.bitcoin_syncer)
+                    && !self.syncer_state.bitcoin_syncer_online
+                {
+                    let btc_fee_task = self.syncer_state.estimate_fee_btc();
+                    let pending_request = PendingRequest {
+                        dest: self.syncer_state.bitcoin_syncer(),
+                        bus_id: ServiceBus::Ctl,
+                        request: Request::SyncerTask(btc_fee_task),
+                    };
+                    self.pending_requests
+                        .insert(self.syncer_state.bitcoin_syncer(), vec![pending_request]);
+                } else {
+                    error!("pending req for syncer not empty")
+                }
 
                 trace!("sending peer MakerCommit msg {}", &local_commit);
                 self.send_peer(endpoints, Msg::MakerCommit(local_commit))?;
